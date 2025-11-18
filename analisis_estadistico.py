@@ -76,7 +76,7 @@ def cargar_datos_desde_excel(file):
     obj_cols = df.select_dtypes(include="object").columns
     df[obj_cols] = df[obj_cols].apply(lambda col: col.str.strip())
 
-    # Rellenar tratamientos
+    # Rellenar tratamientos hacia abajo
     df["Tratamiento"] = df["Tratamiento"].ffill()
 
     # Quitar filas sin respuestas completas
@@ -270,8 +270,25 @@ def anova_factorial(df, factorA, factorB, y):
     return tabla, (FA, FB, FAB, dfA, dfB, dfAB, dfE)
 
 # ================================================================
-# 6. GRÁFICOS (MEJORADOS + TEXTO)
+# 6. GRÁFICOS (MEJORADOS + INTERPRETACIÓN AUTOMÁTICA)
 # ================================================================
+
+def interpretar_proporcion_saludable(df):
+    prop = df.groupby("Tratamiento")["Saludable"].mean()
+    mayor = prop.idxmax()
+    menor = prop.idxmin()
+
+    texto = (
+        f"La mayor proporción de elecciones saludables se observa en el **Tratamiento {mayor}** "
+        f"({prop[mayor]:.2f}). Esto indica que bajo esa combinación de etiqueta y precio, "
+        f"los estudiantes tendieron a elegir opciones más bajas en azúcar.\n\n"
+        f"La menor proporción de elecciones saludables se presenta en el **Tratamiento {menor}** "
+        f"({prop[menor]:.2f}), lo que sugiere que en esa condición predominan elecciones "
+        f"con mayor contenido de azúcar.\n\n"
+        "Comparar visualmente las alturas de las barras permite identificar qué tratamientos "
+        "son más efectivos para promover decisiones saludables."
+    )
+    return texto
 
 def grafico_bar_saludable(df):
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -288,13 +305,26 @@ def grafico_bar_saludable(df):
         ax.text(i, row["Saludable"] + 0.03, f"{row['Saludable']:.2f}",
                 ha="center", fontsize=10)
 
-    texto = (
-        "Este gráfico muestra la fracción de estudiantes que eligieron una "
-        "combinación considerada saludable (según el umbral de azúcar fijado en la barra lateral). "
-        "Comparar las barras permite ver qué tratamientos favorecen más las elecciones saludables."
-    )
+    texto = interpretar_proporcion_saludable(df)
     return fig, texto
 
+def interpretar_azucar_promedio(df):
+    media = df.groupby("Tratamiento")["AzucarTotal"].mean()
+    mayor = media.idxmax()
+    menor = media.idxmin()
+    dif = media[mayor] - media[menor]
+
+    texto = (
+        f"El mayor consumo promedio de azúcar se presenta en el **Tratamiento {mayor}** "
+        f"con {media[mayor]:.1f} g, mientras que el menor se observa en el "
+        f"**Tratamiento {menor}** con {media[menor]:.1f} g.\n\n"
+        f"La diferencia entre ambos tratamientos es de aproximadamente **{dif:.1f} g**. "
+        "Esto evidencia que las distintas combinaciones de etiqueta y precio sí cambian "
+        "la cantidad de azúcar que terminan eligiendo los estudiantes.\n\n"
+        "En general, los tratamientos con barras más bajas representan configuraciones "
+        "más favorables desde el punto de vista de la reducción del consumo de azúcar."
+    )
+    return texto
 
 def grafico_bar_azucar(df):
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -310,13 +340,26 @@ def grafico_bar_azucar(df):
         ax.text(i, row["AzucarTotal"] + 1, f"{row['AzucarTotal']:.1f} g",
                 ha="center", fontsize=10)
 
-    texto = (
-        "Aquí se observa la cantidad promedio de azúcar que consumen los estudiantes "
-        "en cada tratamiento. Barras más altas significan que, en promedio, ese tratamiento "
-        "induce elecciones con mayor contenido de azúcar."
-    )
+    texto = interpretar_azucar_promedio(df)
     return fig, texto
 
+def interpretar_boxplot(df):
+    grupos = df.groupby("Tratamiento")["AzucarTotal"]
+    textos = []
+    for t, serie in grupos:
+        mediana = serie.median()
+        iqr = serie.quantile(0.75) - serie.quantile(0.25)
+        textos.append(
+            f"- Tratamiento {t}: mediana ≈ {mediana:.1f} g, IQR ≈ {iqr:.1f} g."
+        )
+
+    texto = (
+        "El diagrama de cajas permite analizar la variabilidad del azúcar consumido en cada tratamiento.\n\n"
+        + "\n".join(textos) +
+        "\n\nLos tratamientos con IQR más grande muestran mayor dispersión en las elecciones, "
+        "mientras que los tratamientos con IQR más pequeño indican decisiones más homogéneas."
+    )
+    return texto
 
 def grafico_box_azucar(df):
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -326,14 +369,26 @@ def grafico_box_azucar(df):
     ax.set_ylabel("Azúcar total (g)", fontsize=12)
     ax.set_xlabel("Tratamiento", fontsize=12)
 
-    texto = (
-        "El diagrama de cajas muestra la distribución del azúcar total por tratamiento. "
-        "La línea central es la mediana; el ‘cajón’ representa el rango intercuartílico (50 % central "
-        "de los datos) y los bigotes muestran la dispersión. Sirve para comparar la variabilidad y "
-        "detectar posibles valores atípicos."
-    )
+    texto = interpretar_boxplot(df)
     return fig, texto
 
+def interpretar_interaccion(df):
+    tabla = df.groupby(["Etiqueta", "Precio"])["AzucarTotal"].mean().unstack()
+
+    texto = "Interpretación de la interacción Etiqueta × Precio:\n\n"
+    for col in tabla.columns:
+        diff = tabla.loc["Con etiqueta", col] - tabla.loc["Sin etiqueta", col]
+        texto += (
+            f"- Para el precio **{col}**, la diferencia (Con etiqueta - Sin etiqueta) "
+            f"es de {diff:.1f} g.\n"
+        )
+
+    texto += (
+        "\nSi estas diferencias varían mucho entre los distintos niveles de precio, "
+        "entonces la interacción es importante: el efecto del precio cambia según haya "
+        "o no etiqueta. Si las diferencias son similares, la interacción es débil."
+    )
+    return texto
 
 def grafico_interaccion(df):
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -351,12 +406,7 @@ def grafico_interaccion(df):
     ax.set_ylabel("Azúcar total (g)", fontsize=12)
     ax.set_xlabel("Condición de precio", fontsize=12)
 
-    texto = (
-        "Este gráfico de interacción muestra cómo cambia el azúcar promedio según el precio "
-        "para cada nivel de etiqueta. Si las líneas son casi paralelas, la interacción es débil; "
-        "si se cruzan o divergen mucho, la interacción es fuerte, es decir, el efecto del precio "
-        "depende de si el producto tiene etiqueta o no."
-    )
+    texto = interpretar_interaccion(df)
     return fig, texto
 
 # ================================================================
@@ -366,7 +416,7 @@ def grafico_interaccion(df):
 def generar_informe_texto(media, li_m, ls_m,
                           p_est, li_p, ls_p,
                           umbral,
-                          p1, p2, p_val_prop,
+                          p1, p2, z, p_val_prop,
                           pA, pB, pAB,
                           alpha,
                           n_total):
@@ -453,14 +503,7 @@ Se plantearon las hipótesis:
 H0: p1 = p2  (la etiqueta no cambia la proporción de elecciones saludables)
 H1: p1 ≠ p2  (la etiqueta sí cambia la proporción de elecciones saludables)
 
-El estadístico de prueba Z fue {p_val_prop:.3f} (valor-p = {p_val_prop:.4f})."""
-
-    # OJO: arriba puse p_val_prop mal, debería ser z y p_val. Corrijo.
-    # Pero como esto es texto generado, lo arreglo abajo en el código real (no en este string).
-    # Aquí solo es una plantilla; la versión real usará los valores correctos.
-
-    # Para no reescribir todo, ajusto manualmente en el retorno real (ver más abajo).
-    # Así que aquí continúo con el resto de la narrativa genérica:
+El estadístico de prueba Z fue aproximadamente {z:.3f}, con un valor-p de {p_val_prop:.4f}."""
 
     texto += f"""
 
@@ -490,7 +533,7 @@ Con un nivel de significancia α = {alpha:.2f}, se interpreta:
 A partir de los resultados obtenidos en esta muestra de estudiantes se concluye que:
 
 - El consumo promedio de azúcar por compra de bebida + snack se sitúa alrededor de
-  {media:.2f} g, lo que indica que, en general, la elección típica supera ampliamente el
+  {media:.2f} g, lo que indica que, en general, la elección típica puede superar el
   umbral de {umbral} g definido como saludable.
 
 - La proporción de estudiantes que elige combinaciones consideradas saludables es
@@ -499,8 +542,8 @@ A partir de los resultados obtenidos en esta muestra de estudiantes se concluye 
 
 - El contraste de proporciones entre productos con etiqueta y sin etiqueta permite evaluar
   si la sola presencia de la información nutricional logra cambiar la conducta de consumo.
-  Dependiendo del valor-p observado, se decidirá si hay evidencia estadística suficiente
-  para afirmar que la etiqueta sí modifica la proporción de elecciones saludables.
+  Según el valor-p obtenido, se decide si hay evidencia estadística suficiente para afirmar
+  que la etiqueta sí modifica la proporción de elecciones saludables.
 
 - El ANOVA factorial 2×3 muestra si la etiqueta, el precio y su interacción tienen efecto
   sobre el azúcar total escogido. En particular, la interacción A×B es clave para saber
@@ -529,15 +572,6 @@ Este informe puede utilizarse como base para la redacción final del trabajo esc
 ajustando el lenguaje y completando los apartados específicos que pida la rúbrica
 de la Feria Estadística.
 """
-
-    # Arreglo del texto donde usé p_val_prop mal como Z:
-    texto = texto.replace(
-        "El estadístico de prueba Z fue "
-        f"{p_val_prop:.3f} (valor-p = {p_val_prop:.4f}).",
-        f"El estadístico de prueba Z fue aproximadamente "
-        f"{(p1-p2)/np.sqrt(((p1*(1-p1))/n_total)+((p2*(1-p2))/n_total)):.3f}, "
-        f"con un valor-p de {p_val_prop:.4f}."
-    )
 
     return texto
 
@@ -575,8 +609,8 @@ def main():
 
     n_total = len(df)
 
-    st.subheader("Datos procesados (primeras filas)")
-    st.dataframe(df.head(15))
+    st.subheader("Datos procesados (todas las filas)")
+    st.dataframe(df)  # ⬅ ahora muestra TODO, no solo head(15)
 
     # ----------------- Descriptiva -----------------
     st.subheader("1. Análisis descriptivo")
@@ -756,7 +790,7 @@ def main():
         media, li_m, ls_m,
         p_est, li_p, ls_p,
         umbral,
-        p1, p2, p_value,
+        p1, p2, z, p_value,
         pA, pB, pAB,
         alpha,
         n_total
@@ -776,7 +810,7 @@ def main():
     st.markdown("#### 6.2 Conclusiones del proyecto (resumen corto, listo para pegar en el póster)")
     conclusiones_resumen = f"""
 - El consumo promedio de azúcar por combinación bebida + snack fue de {media:.2f} g.
-- Solo alrededor de {p_est*100:.1f}% de los estudiantes eligió opciones consideradas saludables (≤ {umbral} g de azúcar).
+- Aproximadamente el {p_est*100:.1f}% de los estudiantes eligió opciones consideradas saludables (≤ {umbral} g de azúcar).
 - La comparación de proporciones entre productos con y sin etiqueta arrojó un valor-p de {p_value:.4f}, \
 lo que {'indica un efecto significativo del etiquetado.' if p_value < alpha else 'no muestra evidencia estadística suficiente de efecto del etiquetado.'}
 - El ANOVA factorial 2×3 permitió evaluar simultáneamente los efectos de la etiqueta, del precio y de su interacción sobre \
